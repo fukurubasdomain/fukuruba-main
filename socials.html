@@ -265,7 +265,7 @@
 <div class="scanlines"></div>
 
 <div class="card">
-  <div class="avatar"><img src="assets/social-avatar.jpg" alt="fukuruba"></div>
+  <div class="avatar"><img id="discord-avatar" src="assets/social-avatar.jpg" alt="fukuruba"></div>
 
   <h1 id="handle">fukuruba<span class="cursor"></span></h1>
   <p class="tagline">you found the <span>links</span>. pick one.</p>
@@ -328,14 +328,23 @@
   // decode-in animation for the handle
   const el = document.getElementById('handle');
   const cursor = el.querySelector('.cursor');
-  const finalText = "fukuruba";
+  let finalText = "fukuruba";
   const chars = "abcdefghijklmnopqrstuvwxyz_0123456789";
   let frame = 0;
   const totalFrames = 18;
 
+  function setDiscordDisplayName(name) {
+    if (finalText === name) return;
+    finalText = name;
+    // Finish the initial scramble so it cannot overwrite the live name.
+    frame = totalFrames;
+    el.textContent = finalText;
+    el.appendChild(cursor);
+  }
+
   function scramble(){
     if(frame >= totalFrames){
-      el.innerHTML = finalText;
+      el.textContent = finalText;
       el.appendChild(cursor);
       return;
     }
@@ -355,7 +364,7 @@
   }
 
   if(window.matchMedia('(prefers-reduced-motion: reduce)').matches){
-    el.innerHTML = finalText;
+    el.textContent = finalText;
     el.appendChild(cursor);
   } else {
     scramble();
@@ -365,5 +374,72 @@
 
 
 <script src="script.js"></script>
+<script>
+  (() => {
+    const userId = '1067928829148020736'; // Same Discord account as Watchly.
+    const avatar = document.getElementById('discord-avatar');
+    const fallback = avatar.getAttribute('src');
+    let timer;
+    let request;
+
+    avatar.addEventListener('error', () => {
+      if (avatar.getAttribute('src') !== fallback) avatar.src = fallback;
+    });
+
+    async function refreshAvatar() {
+      if (document.hidden || request) return;
+      const controller = new AbortController();
+      request = controller;
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      try {
+        const response = await fetch(`https://api.lanyard.rest/v1/users/${userId}`, {
+          signal: controller.signal,
+          cache: 'no-store'
+        });
+        if (!response.ok) return;
+        const result = await response.json();
+        const user = result.success && result.data && result.data.discord_user;
+        if (!user || controller.signal.aborted) return;
+        const displayName = user.global_name || user.username;
+        if (displayName) {
+          setDiscordDisplayName(displayName);
+          avatar.alt = displayName;
+        }
+        let url;
+        if (user.avatar) {
+          const extension = user.avatar.startsWith('a_') ? 'gif' : 'png';
+          url = `https://cdn.discordapp.com/avatars/${userId}/${user.avatar}.${extension}?size=128`;
+        } else {
+          const index = Number(user.discriminator)
+            ? Number(user.discriminator) % 5
+            : Number((BigInt(userId) >> 22n) % 6n);
+          url = `https://cdn.discordapp.com/embed/avatars/${index}.png`;
+        }
+        if (avatar.getAttribute('src') !== url) avatar.src = url;
+      } catch (_) {
+        // Keep the current picture when Discord/Lanyard is unavailable.
+      } finally {
+        clearTimeout(timeout);
+        if (request === controller) request = null;
+      }
+    }
+
+    function stop() {
+      clearInterval(timer);
+      if (request) request.abort();
+      request = null;
+    }
+    function start() {
+      stop();
+      if (document.hidden) return;
+      refreshAvatar();
+      timer = setInterval(refreshAvatar, 60000);
+    }
+    document.addEventListener('visibilitychange', start);
+    window.addEventListener('pagehide', stop);
+    window.addEventListener('pageshow', start);
+    start();
+  })();
+</script>
 </body>
 </html>
