@@ -11,10 +11,19 @@
   // button on socials.html/watchly.html), skip straight to the
   // chooser. Runs synchronously in <head> so the intro never
   // flashes on screen before being hidden.
-  if (sessionStorage.getItem('fukuruba-intro-seen')) {
-    document.documentElement.classList.add('skip-intro');
-  } else {
-    sessionStorage.setItem('fukuruba-intro-seen', '1');
+  try {
+    if (sessionStorage.getItem('fukuruba-intro-seen')) {
+      document.documentElement.classList.add('skip-intro');
+    } else {
+      sessionStorage.setItem('fukuruba-intro-seen', '1');
+    }
+  } catch (_) { /* The intro still works when storage is unavailable. */ }
+  if (!document.documentElement.classList.contains('skip-intro')) {
+    document.documentElement.classList.add('intro-active');
+  }
+  if (/Android/i.test(navigator.userAgent) ||
+      matchMedia('(max-width: 800px), (pointer: coarse)').matches) {
+    document.documentElement.classList.add('intro-lite');
   }
 </script>
 <style>
@@ -148,6 +157,15 @@
     display:none;
   }
 
+  /* Avoid painting the covered page or sampling its backdrop during exit. */
+  html.intro-active:not(.intro-ready) .chooser,
+  html.intro-active:not(.intro-ready) .backdrop,
+  html.intro-active:not(.intro-ready) .grain{visibility:hidden}
+  html.intro-active .chooser{
+    backdrop-filter:none;
+    -webkit-backdrop-filter:none;
+  }
+
   .intro{
     position:fixed;
     inset:0;
@@ -162,6 +180,8 @@
     color:#f0eeea;
     pointer-events:auto;
     isolation:isolate;
+    contain:layout paint style;
+    will-change:transform;
     animation:introExit 1.45s cubic-bezier(.76,0,.24,1) 9s forwards;
   }
 
@@ -279,7 +299,8 @@
 
   .intro-rule{
     position:relative;
-    width:0;
+    width:145px;
+    transform:scaleX(0);
     height:1px;
     margin:27px auto 18px;
     background:rgba(240,238,234,.62);
@@ -384,7 +405,6 @@
     border-radius:50%;
     background:
       radial-gradient(circle,rgba(240,238,234,.10) 0%,rgba(240,238,234,.045) 20%,rgba(240,238,234,.018) 38%,transparent 70%);
-    filter:blur(4px);
     opacity:0;
     z-index:0;
     animation:
@@ -398,7 +418,7 @@
     inset:18%;
     border:1px solid rgba(240,238,234,.035);
     border-radius:50%;
-    animation:auraRing 8s linear 2.5s infinite;
+    /* Rotating a perfectly circular ring produces no visible change. */
   }
 
   .intro-stars{
@@ -427,9 +447,9 @@
   .intro-stars i:nth-child(6){bottom:14%;left:50%;animation-delay:2.25s,3s}
 
   @keyframes introMark{
-    0%{opacity:0;transform:translateY(22px) scale(.96);filter:blur(8px)}
-    60%{opacity:1;filter:blur(0)}
-    100%{opacity:1;transform:translateY(0) scale(1);filter:blur(0)}
+    0%{opacity:0;transform:translateY(22px) scale(.96)}
+    60%{opacity:1}
+    100%{opacity:1;transform:translateY(0) scale(1)}
   }
 
   @keyframes introLine{
@@ -438,13 +458,13 @@
   }
 
   @keyframes introRule{
-    from{width:0}
-    to{width:145px}
+    from{transform:scaleX(0)}
+    to{transform:scaleX(1)}
   }
 
   @keyframes introSub{
-    from{opacity:0;transform:translateY(10px);filter:blur(4px)}
-    to{opacity:1;transform:translateY(0);filter:blur(0)}
+    from{opacity:0;transform:translateY(10px)}
+    to{opacity:1;transform:translateY(0)}
   }
 
   @keyframes ruleMarks{to{opacity:1}}
@@ -475,13 +495,13 @@
   }
 
   @keyframes centerPulse{
-    0%,100%{opacity:.55;box-shadow:0 0 10px rgba(240,238,234,.2),0 0 28px rgba(240,238,234,.06)}
-    50%{opacity:1;box-shadow:0 0 25px rgba(240,238,234,.5),0 0 65px rgba(240,238,234,.15)}
+    0%,100%{opacity:.55;transform:translate(-50%,-50%) scale(.85)}
+    50%{opacity:1;transform:translate(-50%,-50%) scale(1.15)}
   }
 
   @keyframes nameBreath{
-    0%,100%{text-shadow:0 0 24px rgba(240,238,234,.07),0 0 65px rgba(240,238,234,.025)}
-    50%{text-shadow:0 0 44px rgba(240,238,234,.17),0 0 95px rgba(240,238,234,.055)}
+    0%,100%{opacity:.86}
+    50%{opacity:1}
   }
 
   @keyframes orbitIn{
@@ -501,10 +521,6 @@
     50%{opacity:.95;transform:scale(1.1)}
   }
 
-  @keyframes auraRing{
-    to{transform:rotate(360deg)}
-  }
-
   @keyframes starIn{
     from{opacity:0;transform:scale(.15)}
     to{opacity:.72;transform:scale(1)}
@@ -516,10 +532,39 @@
   }
 
   @keyframes introExit{
-    0%{opacity:1;clip-path:inset(0 0 0 0)}
-    52%{opacity:1;clip-path:inset(0 0 100% 0)}
-    82%{opacity:.98;clip-path:inset(0 0 100% 0)}
-    100%{opacity:0;clip-path:inset(0 0 100% 0);visibility:hidden}
+    from{transform:translateY(0)}
+    to{transform:translateY(-100%)}
+  }
+
+  /* Budget GPU textures and blending on Android and touch/small screens.
+     Keep the composition, staggered entrances, orbit and floating diamond. */
+  .intro-lite .intro-aura{
+    width:min(440px,90vw);
+    height:min(440px,90vw);
+    animation:auraIn 2.1s ease .9s forwards;
+  }
+  .intro-lite .intro-name{animation:none;text-shadow:none}
+  .intro-lite .intro-glyph,
+  .intro-lite .intro-glyph::after,
+  .intro-lite .intro-orbit::before,
+  .intro-lite .intro-orbit::after,
+  .intro-lite .intro-stars i,
+  .intro-lite .intro-rule,
+  .intro-lite .intro::before,
+  .intro-lite .intro::after{box-shadow:none}
+  .intro-lite .intro-corners span::before{animation:none;opacity:.45}
+  .intro-lite .intro-corners span::after{animation:none;opacity:.7}
+  .intro-lite .intro-glyph::after{animation:none;opacity:.7}
+  .intro-lite .intro-stars i{
+    animation-name:starIn;
+    animation-duration:1.2s;
+    animation-timing-function:ease;
+    animation-iteration-count:1;
+    animation-fill-mode:forwards;
+  }
+
+  @keyframes introFade{
+    to{opacity:0}
   }
 
   @media (prefers-reduced-motion:reduce){
@@ -544,7 +589,7 @@
       animation:none !important;
     }
     .intro{
-      animation:introExit .3s ease 1.4s forwards !important;
+      animation:introFade .3s ease 1.4s forwards !important;
     }
     .intro-mark,
     .intro-corners span{
@@ -556,7 +601,7 @@
     .intro::after{
       transform:translateX(-50%) scaleX(1);
     }
-    .intro-rule{width:145px}
+    .intro-rule{transform:none}
     .intro-rule::before,.intro-rule::after{opacity:1}
     .intro-sub{opacity:1;transform:none}
     .intro-glyph{opacity:1;transform:rotate(45deg)}
@@ -606,5 +651,55 @@
       </button>
     </div>
   </main>
+  <script>
+    (() => {
+      const root = document.documentElement;
+      const intro = document.getElementById('intro');
+      if (root.classList.contains('skip-intro')) {
+        intro.remove();
+        return;
+      }
+
+      const chooser = document.getElementById('chooser');
+      const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+      chooser.inert = true;
+      let prepareTimer;
+      let fallbackTimer;
+      let finished = false;
+      const prepare = () => root.classList.add('intro-ready');
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(prepareTimer);
+        clearTimeout(fallbackTimer);
+        intro.removeEventListener('animationend', onEnd);
+        document.removeEventListener('visibilitychange', onVisibility);
+        window.removeEventListener('pagehide', finish);
+        reduced.removeEventListener('change', finish);
+        root.classList.add('skip-intro');
+        root.classList.remove('intro-ready', 'intro-active');
+        chooser.inert = false;
+        // Detach every looping animation and release the overlay's layers.
+        intro.remove();
+      };
+      const onEnd = event => {
+        if (event.target === intro &&
+            (event.animationName === 'introExit' || event.animationName === 'introFade')) {
+          finish();
+        }
+      };
+      const onVisibility = () => {
+        if (document.hidden) finish();
+      };
+      intro.addEventListener('animationend', onEnd);
+      document.addEventListener('visibilitychange', onVisibility);
+      window.addEventListener('pagehide', finish);
+      reduced.addEventListener('change', finish);
+      // Rasterize the destination before the exit, outside its critical frames.
+      prepareTimer = setTimeout(prepare, reduced.matches ? 900 : 7500);
+      fallbackTimer = setTimeout(finish, reduced.matches ? 2200 : 11500);
+      if (document.hidden) finish();
+    })();
+  </script>
 </body>
 </html>
