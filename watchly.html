@@ -428,6 +428,20 @@
     return null;
   }
 
+  // Native Discord Watching activities, plus video integrations that publish
+  // their rich presence as Playing. Do not infer video from arbitrary titles
+  // (a game, editor or music track can also contain the word "watching").
+  function isWatchingActivity(activity) {
+    if (activity.type === 3) return true;
+    if (activity.type !== 0) return false;
+    const videoApps = /^(?:fukurubasdomain|YouTube(?: Together)?|Netflix|Crunchyroll|Disney\+|Disney Plus|(?:Amazon )?Prime Video|Hulu|HBO Max|Max|Apple TV\+?|Plex|Jellyfin|Stremio|VLC(?: media player)?|mpv|PotPlayer)$/i;
+    const details = [activity.details, activity.state]
+      .filter(value => typeof value === 'string' && value.trim());
+    return videoApps.test(String(activity.name || '').trim()) &&
+      details.length > 0 &&
+      !details.every(value => /^(?:browsing|in (?:the )?(?:menus?|library)|idle)(?:\b|$)/i.test(value.trim()));
+  }
+
   function render(data) {
     if (!data || !data.discord_user) return;
 
@@ -531,12 +545,18 @@
       const lines = [activity.details, activity.state].filter(Boolean);
       const titleText = lines[0] || activity.name || 'Activity';
       const subtitleText = lines[1] || null;
+      const watching = isWatchingActivity(activity);
+      // Preserve the provider's exact title and season/episode text; missing
+      // metadata stays missing rather than guessing an episode number.
+      const headerText = watching
+        ? `${data.discord_user.global_name || data.discord_user.username || 'User'} is now watching:`
+        : activity.name || 'Activity';
       const elapsedId = `elapsedLine-${index}`;
 
       cards.push(`
         <div class="dc-card">
           <div class="dc-inner">
-            <div class="dc-head">${escapeHtml(activity.name || 'Activity')}</div>
+            <div class="dc-head">${escapeHtml(headerText)}</div>
             <div class="dc-body">
               ${activity.name === 'Visual Studio Code' || activity.name === 'VS Code' ? `
                 <div class="dc-art-wrap vscode-art-wrap">
@@ -544,7 +564,7 @@
                 </div>` : (largeUrl ? `
                 <div class="dc-art-wrap">
                   <img class="dc-art" src="${escapeHtml(largeUrl)}" alt="">
-                  ${smallUrl ? `<img class="dc-badge" src="${smallUrl}" alt="">` : ''}
+                  ${smallUrl ? `<img class="dc-badge" src="${escapeHtml(smallUrl)}" alt="">` : ''}
                 </div>` : '')}
               <div class="dc-info">
                 <div class="dc-title">${escapeHtml(titleText)}</div>
