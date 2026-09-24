@@ -112,6 +112,17 @@
     pointer-events: none;
   }
   .who-info { min-width: 0; flex: 1; padding-bottom: 16px; }
+  .last-online {
+    margin: 0 0 20px;
+    padding: 12px 14px;
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    background: rgba(5, 5, 5, .35);
+    font-size: .75rem;
+    line-height: 1.7;
+    overflow-wrap: anywhere;
+  }
+  .last-online-detail { display: block; color: var(--muted); font-size: .68rem; }
   .nameplate {
     position: relative;
     width: fit-content;
@@ -183,13 +194,35 @@
   .status.dnd::after { width: 65%; height: 20%; left: 17.5%; top: 40%; border-radius: 2px; }
   .status.offline::after { inset: 25%; border-radius: 50%; }
   .quiet {
-    color: var(--muted);
-    font-size: 0.92rem;
-    border-top: 1px solid var(--hairline);
-    padding-top: 18px;
+    position: relative;
+    width: fit-content;
+    max-width: 100%;
+    box-sizing: border-box;
+    margin: 22px 0 2px;
+    padding: 13px 19px;
+    border: 1px solid rgba(240, 238, 234, .23);
+    border-radius: 23px 25px 25px 9px;
+    background: linear-gradient(135deg, rgba(78, 78, 78, .8), rgba(35, 35, 35, .65));
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .15), inset 0 1px 0 rgba(240, 238, 234, .06);
+    color: var(--ink);
+    font-size: .95rem;
+    line-height: 1.6;
     font-style: italic;
     font-family: 'Fraunces', serif;
+    overflow-wrap: anywhere;
   }
+  .quiet::before,
+  .quiet::after {
+    content: '';
+    position: absolute;
+    border: 1px solid rgba(240, 238, 234, .23);
+    border-radius: 50%;
+    background: #414141;
+    pointer-events: none;
+  }
+  .quiet::before { width: 8px; height: 8px; top: -14px; left: 25px; }
+  .quiet::after { width: 4px; height: 4px; top: -23px; left: 17px; }
+  .quiet-text { margin: 0; }
 
   /* ---- activity card (mirrors Discord's native embed) ---- */
   .dc-card {
@@ -484,6 +517,10 @@
           </div>
         </div>
       </div>
+      <div class="last-online" id="lastOnlineBox" hidden>
+        <span id="lastOnline">Checking status…</span>
+        <span class="last-online-detail" id="lastOnlineDetail"></span>
+      </div>
       <div id="activityBlock"></div>
     </div>
   </div>
@@ -519,6 +556,7 @@
 
 </div>
 
+<script src="watchly-settings.js"></script>
 <script>
   // --- the only thing you need to set ---
   const DISCORD_USER_ID = '1067928829148020736';
@@ -531,6 +569,78 @@
   const activityBlockEl = document.getElementById('activityBlock');
 
   let elapsedTimer = null;
+  const lastOnlineBoxEl = document.getElementById('lastOnlineBox');
+  const lastOnlineEl = document.getElementById('lastOnline');
+  const lastOnlineDetailEl = document.getElementById('lastOnlineDetail');
+  const lastOnlineKey = `watchly:last-online:${DISCORD_USER_ID}`;
+  let lastOnlineAt = null;
+  let disconnectedAt = null;
+  let presenceStatus = null;
+  let livePresence = false;
+  let receivedSocketPresence = false;
+  try {
+    const saved = Number(localStorage.getItem(lastOnlineKey));
+    if (Number.isFinite(saved) && saved > 0 && saved <= Date.now()) lastOnlineAt = saved;
+  } catch (_) { /* Private browsing can disable storage. */ }
+
+  function rememberOnline() {
+    lastOnlineAt = Date.now();
+    try { localStorage.setItem(lastOnlineKey, String(lastOnlineAt)); } catch (_) {}
+  }
+
+  function offlineDuration(timestamp) {
+    const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor(seconds % 86400 / 3600);
+    const minutes = Math.floor(seconds % 3600 / 60);
+    return [days && `${days}d`, (days || hours) && `${hours}h`,
+      (days || hours || minutes) && `${minutes}m`, `${seconds % 60}s`].filter(Boolean).join(' ');
+  }
+
+  function renderLastOnline() {
+    lastOnlineBoxEl.hidden = !livePresence || presenceStatus !== 'offline';
+    if (!presenceStatus) {
+      lastOnlineEl.textContent = 'Status unavailable';
+      lastOnlineDetailEl.textContent = 'Waiting for a live status update.';
+    } else if (!livePresence) {
+      lastOnlineEl.textContent = 'Reconnecting to live status…';
+      lastOnlineDetailEl.textContent = lastOnlineAt
+        ? `Last observed online: ${new Date(lastOnlineAt).toLocaleString()}`
+        : 'Last online has not been recorded in this browser yet.';
+    } else if (presenceStatus !== 'offline') {
+      lastOnlineEl.textContent = 'Last online: now';
+      lastOnlineDetailEl.textContent = { online: 'Currently online', idle: 'Currently idle', dnd: 'Do Not Disturb' }[presenceStatus];
+    } else if (disconnectedAt) {
+      lastOnlineEl.textContent = `Last online: ${offlineDuration(disconnectedAt)} ago`;
+      lastOnlineDetailEl.textContent = `Disconnected: ${new Date(disconnectedAt).toLocaleString()}`;
+    } else if (lastOnlineAt) {
+      lastOnlineEl.textContent = `Last seen online: ${offlineDuration(lastOnlineAt)} ago`;
+      lastOnlineDetailEl.textContent = 'Last observed in this browser; exact disconnect time is unknown.';
+    } else {
+      lastOnlineEl.textContent = 'Offline · Last online unknown';
+      lastOnlineDetailEl.textContent = 'Waiting to observe your next online session.';
+    }
+  }
+
+  function updatePresence(status) {
+    if (!['online', 'idle', 'dnd', 'offline'].includes(status)) return;
+    if (status !== 'offline') {
+      rememberOnline();
+      disconnectedAt = null;
+    } else if (livePresence && presenceStatus && presenceStatus !== 'offline') {
+      disconnectedAt = Date.now();
+      rememberOnline();
+    }
+    presenceStatus = status;
+    livePresence = true;
+    renderLastOnline();
+  }
+
+  // This timer is independent of activity timers, including when no activity exists.
+  setInterval(() => {
+    if (livePresence && presenceStatus && presenceStatus !== 'offline') rememberOnline();
+    renderLastOnline();
+  }, 1000);
 
   function avatarUrl(user) {
     if (!user.avatar) return `https://cdn.discordapp.com/embed/avatars/${(Number(user.discriminator) || 0) % 5}.png`;
@@ -595,6 +705,7 @@
 
     nameEl.textContent = data.discord_user.global_name || data.discord_user.username;
     const discordStatus = data.discord_status;
+    updatePresence(discordStatus);
     const status = ['online', 'idle', 'dnd'].includes(discordStatus) ? discordStatus : 'offline';
     const statusLabel = { online: 'Online', idle: 'Idle', dnd: 'Do Not Disturb', offline: 'Offline' }[status];
     statusEl.className = 'status ' + status;
@@ -738,7 +849,12 @@
     });
 
     if (!cards.length) {
-      activityBlockEl.innerHTML = `<div class="quiet">Not doing much right now.</div>`;
+      const idleMessage = typeof window.watchlySettings?.idleMessage === 'string'
+        ? window.watchlySettings.idleMessage
+        : 'Not doing much right now.';
+      activityBlockEl.innerHTML = `<div class="quiet">
+        <p class="quiet-text">${escapeHtml(idleMessage)}</p>
+      </div>`;
       return;
     }
 
@@ -757,7 +873,7 @@
   // the socket connects.
   fetch(`https://api.lanyard.rest/v1/users/${DISCORD_USER_ID}`)
     .then((r) => r.json())
-    .then((j) => { if (j.success) render(j.data); })
+    .then((j) => { if (j.success && !receivedSocketPresence) render(j.data); })
     .catch(() => {});
 
   // Live updates via Lanyard's WebSocket — this is the same gateway
@@ -780,11 +896,15 @@
         }, payload.d.heartbeat_interval);
       }
       if (payload.op === 0 && (payload.t === 'INIT_STATE' || payload.t === 'PRESENCE_UPDATE')) {
+        receivedSocketPresence = true;
         render(payload.d);
       }
     };
 
     ws.onclose = () => {
+      livePresence = false;
+      disconnectedAt = null; // Updates missed during an outage cannot establish a disconnect time.
+      renderLastOnline();
       clearInterval(heartbeatTimer);
       setTimeout(connect, 3000); // reconnect on drop
     };
