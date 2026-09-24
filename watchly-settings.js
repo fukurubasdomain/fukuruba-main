@@ -9,5 +9,5 @@
 //Studying for an exam I forgot about.
 //In class.
 window.watchlySettings = {
-  idleMessage: "Probably touching grass."
+  idleMessage: "Taking a little break."
 };
