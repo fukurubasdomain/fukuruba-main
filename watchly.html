@@ -572,20 +572,20 @@
   const lastOnlineBoxEl = document.getElementById('lastOnlineBox');
   const lastOnlineEl = document.getElementById('lastOnline');
   const lastOnlineDetailEl = document.getElementById('lastOnlineDetail');
-  const lastOnlineKey = `watchly:last-online:${DISCORD_USER_ID}`;
   let lastOnlineAt = null;
-  let disconnectedAt = null;
   let presenceStatus = null;
   let livePresence = false;
   let receivedSocketPresence = false;
-  try {
-    const saved = Number(localStorage.getItem(lastOnlineKey));
-    if (Number.isFinite(saved) && saved > 0 && saved <= Date.now()) lastOnlineAt = saved;
-  } catch (_) { /* Private browsing can disable storage. */ }
 
-  function rememberOnline() {
-    lastOnlineAt = Date.now();
-    try { localStorage.setItem(lastOnlineKey, String(lastOnlineAt)); } catch (_) {}
+  async function loadSharedHistory() {
+    try {
+      const response = await fetch('/api/last-online', { cache: 'no-store' });
+      if (!response.ok) return;
+      const history = await response.json();
+      if (history.userId !== DISCORD_USER_ID) return;
+      lastOnlineAt = Number.isFinite(history.lastOnlineAt) ? history.lastOnlineAt : null;
+      renderLastOnline();
+    } catch (_) { /* Keep the shared record during network outages. */ }
   }
 
   function offlineDuration(timestamp) {
@@ -606,31 +606,21 @@
       lastOnlineEl.textContent = 'Reconnecting to live status…';
       lastOnlineDetailEl.textContent = lastOnlineAt
         ? `Last observed online: ${new Date(lastOnlineAt).toLocaleString()}`
-        : 'Last online has not been recorded in this browser yet.';
+        : 'Last online has not been recorded yet.';
     } else if (presenceStatus !== 'offline') {
       lastOnlineEl.textContent = 'Last online: now';
       lastOnlineDetailEl.textContent = { online: 'Currently online', idle: 'Currently idle', dnd: 'Do Not Disturb' }[presenceStatus];
-    } else if (disconnectedAt) {
-      lastOnlineEl.textContent = `Last online: ${offlineDuration(disconnectedAt)} ago`;
-      lastOnlineDetailEl.textContent = `Disconnected: ${new Date(disconnectedAt).toLocaleString()}`;
     } else if (lastOnlineAt) {
       lastOnlineEl.textContent = `Last seen online: ${offlineDuration(lastOnlineAt)} ago`;
-      lastOnlineDetailEl.textContent = 'Last observed in this browser; exact disconnect time is unknown.';
+      lastOnlineDetailEl.textContent = `Last seen: ${new Date(lastOnlineAt).toLocaleString()}`;
     } else {
       lastOnlineEl.textContent = 'Offline · Last online unknown';
-      lastOnlineDetailEl.textContent = 'Waiting to observe your next online session.';
+      lastOnlineDetailEl.textContent = 'Waiting for the next online session to be recorded.';
     }
   }
 
   function updatePresence(status) {
     if (!['online', 'idle', 'dnd', 'offline'].includes(status)) return;
-    if (status !== 'offline') {
-      rememberOnline();
-      disconnectedAt = null;
-    } else if (livePresence && presenceStatus && presenceStatus !== 'offline') {
-      disconnectedAt = Date.now();
-      rememberOnline();
-    }
     presenceStatus = status;
     livePresence = true;
     renderLastOnline();
@@ -638,9 +628,11 @@
 
   // This timer is independent of activity timers, including when no activity exists.
   setInterval(() => {
-    if (livePresence && presenceStatus && presenceStatus !== 'offline') rememberOnline();
     renderLastOnline();
   }, 1000);
+
+  loadSharedHistory();
+  setInterval(loadSharedHistory, 30000);
 
   function avatarUrl(user) {
     if (!user.avatar) return `https://cdn.discordapp.com/embed/avatars/${(Number(user.discriminator) || 0) % 5}.png`;
@@ -903,7 +895,7 @@
 
     ws.onclose = () => {
       livePresence = false;
-      disconnectedAt = null; // Updates missed during an outage cannot establish a disconnect time.
+
       renderLastOnline();
       clearInterval(heartbeatTimer);
       setTimeout(connect, 3000); // reconnect on drop
