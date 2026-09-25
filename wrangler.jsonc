@@ -1,8 +1,16 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "fukuruba-main",
+  "main": "worker.mjs",
   "compatibility_date": "2026-09-11",
   "assets": {
-    "directory": "."
-  }
+    "directory": ".",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "PRESENCE_HISTORY", "class_name": "PresenceHistory" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PresenceHistory"] }],
+  "triggers": { "crons": ["* * * * *"] }
 }
