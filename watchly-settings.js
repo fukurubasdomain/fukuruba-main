@@ -8,6 +8,7 @@
 //At the library, fighting for my life.
 //Studying for an exam I forgot about.
 //In class.
+//playing guitar or chilling ...
 window.watchlySettings = {
-  idleMessage: "sleeping😴."
+  idleMessage: "playing guitar or chilling ...."
 };
