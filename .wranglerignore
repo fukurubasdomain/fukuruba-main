@@ -2,3 +2,6 @@
 .github
 .wrangler
 node_modules
+worker.mjs
+tests
+wrangler.jsonc
