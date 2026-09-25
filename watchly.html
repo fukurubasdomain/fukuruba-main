@@ -576,16 +576,34 @@
   let presenceStatus = null;
   let livePresence = false;
   let receivedSocketPresence = false;
+  let historyState = 'loading';
+  const lastOnlineKey = `watchly:last-online:${DISCORD_USER_ID}`;
+  let browserLastOnlineAt = null;
+  try {
+    const saved = Number(localStorage.getItem(lastOnlineKey));
+    if (Number.isFinite(saved) && saved > 0 && saved <= Date.now()) browserLastOnlineAt = saved;
+  } catch (_) {}
+
+  function rememberBrowserOnline() {
+    browserLastOnlineAt = Date.now();
+    try { localStorage.setItem(lastOnlineKey, String(browserLastOnlineAt)); } catch (_) {}
+  }
 
   async function loadSharedHistory() {
     try {
       const response = await fetch('/api/last-online', { cache: 'no-store' });
-      if (!response.ok) return;
+      if (!response.ok) throw new Error('Shared history unavailable');
       const history = await response.json();
-      if (history.userId !== DISCORD_USER_ID) return;
+      if (history.userId !== DISCORD_USER_ID ||
+          !(history.lastOnlineAt === null || (Number.isFinite(history.lastOnlineAt) && history.lastOnlineAt > 0))) {
+        throw new Error('Invalid shared history');
+      }
       lastOnlineAt = Number.isFinite(history.lastOnlineAt) ? history.lastOnlineAt : null;
-      renderLastOnline();
-    } catch (_) { /* Keep the shared record during network outages. */ }
+      historyState = history.trackingAvailable === false ? 'unavailable' : 'ready';
+    } catch (_) {
+      historyState = 'unavailable';
+    }
+    renderLastOnline();
   }
 
   function offlineDuration(timestamp) {
@@ -598,6 +616,10 @@
   }
 
   function renderLastOnline() {
+    if (historyState === 'unavailable' && browserLastOnlineAt &&
+        (!lastOnlineAt || browserLastOnlineAt > lastOnlineAt)) {
+      lastOnlineAt = browserLastOnlineAt;
+    }
     lastOnlineBoxEl.hidden = !livePresence || presenceStatus !== 'offline';
     if (!presenceStatus) {
       lastOnlineEl.textContent = 'Status unavailable';
@@ -615,12 +637,18 @@
       lastOnlineDetailEl.textContent = `Last seen: ${new Date(lastOnlineAt).toLocaleString()}`;
     } else {
       lastOnlineEl.textContent = 'Offline · Last online unknown';
-      lastOnlineDetailEl.textContent = 'Waiting for the next online session to be recorded.';
+      lastOnlineDetailEl.textContent = historyState === 'loading'
+        ? 'Loading saved history…'
+        : historyState === 'unavailable'
+          ? 'Shared tracking is unavailable.'
+          : 'No online session has been recorded yet.';
     }
   }
 
   function updatePresence(status) {
     if (!['online', 'idle', 'dnd', 'offline'].includes(status)) return;
+    if (status !== 'offline') rememberBrowserOnline();
+    if (status !== presenceStatus) loadSharedHistory();
     presenceStatus = status;
     livePresence = true;
     renderLastOnline();
