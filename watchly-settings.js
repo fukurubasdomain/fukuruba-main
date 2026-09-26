@@ -10,5 +10,5 @@
 //In class.
 //playing guitar or chilling ...
 window.watchlySettings = {
-  idleMessage: "In class."
+  idleMessage: "Somewhere between sleepy and bored."
 };
